@@ -136,7 +136,7 @@ var invoke = function(run, callback) {
 
 // root route
 app.get('/', function(req, res, next) {
-  res.redirect('spec.html');
+  res.redirect('index.json');
 });
 
 // route: /runs
