@@ -1,0 +1,125 @@
+#%RAML 0.8
+---
+title: rest-node #TODO: put name of generated API impl if given
+baseUri: http://localhost:3000/api/{version}
+version: v1
+
+schemas:
+  - run: |
+      {
+        "$schema": "http://json-schema.org/draft-04/schema#",
+        "type": "object",
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "invoker_config": {}
+            }
+          },
+          "results": {
+            "type": "object",
+            "properties": {
+              "stdout": { "type": "string" },
+              "stderr": { "type": "string" }
+            }
+          },
+          "_links": {
+            "type": "object",
+            "patternProperties": {
+              "[a-zA-Z0-9-_.]+": {
+                "type": "object",
+                "properties": {
+                  "href": { "type": "string" }
+                }
+              }
+            }
+          },
+          "_id": { "type": "string" },
+          "status": { "type": "string" },
+          "created": { "type": "string" },
+          "finished": { "type": "string" },
+          "failed": { "type": "string" },
+          "error": { "type": "string" }
+        },
+        "required": [ "parameters" ]
+      }
+  - runCollection: |
+      {
+        "$schema": "http://json-schema.org/draft-04/schema#",
+        "type": "array",
+        "description": "List of runs"
+      }
+
+
+/runs:
+  get:
+    description: List all runs
+    queryParameters:
+      status:
+        type: string
+        description: Filter runs by status ('running', 'finished', etc.)
+        example: running
+        required: false
+    responses:
+      200:
+        body:
+          application/json:
+            schema: runCollection
+  post:
+    description: Add a new run
+    body:
+      application/json:
+        schema: run
+        example: |
+          {
+            "parameters": {
+              "invoker_config": {
+                "access": "local"
+              },
+              "mysql/port": "3306"
+            }
+          }
+    responses:
+      201:
+        body:
+          application/json:
+            schema: run
+  /{runId}:
+    get:
+      responses:
+        200:
+          body:
+            application/json:
+              schema: run
+              example: |
+                {
+                  "_id": "eae393ac-b766-4ffc-a69b-d41e37b3f5b2",
+                  "status": "running",
+                  "parameters": {
+                    "invoker_config": {
+                      "access": "local"
+                    },
+                    "mysql/port": "3306"
+                  },
+                  "_links": {
+                    "self": "/runs/eae393ac-b766-4ffc-a69b-d41e37b3f5b2",
+                    "parent": "/runs"
+                  }
+                }
+        404:
+          body:
+            application/json:
+              example: |
+                { "message": "run missing" }
+    put:
+      description: Update run to set status to 'running' if not already done
+      body:
+        application/json:
+          schema: run
+          example: |
+            { "status": "running" }
+      responses:
+        200:
+          body:
+            application/json:
+              schema: run
