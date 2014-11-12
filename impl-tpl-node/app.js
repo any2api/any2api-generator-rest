@@ -30,8 +30,7 @@ app.use(logger('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'static'), { index: ['index.json', 'index.html'],
-                                                         extensions: ['html', 'htm'] }));
+app.use(express.static(path.join(__dirname, 'static')));
 
 var apiBase = '/api/v1';
 
@@ -135,9 +134,33 @@ var invoke = function(run, callback) {
 
 
 
-// root route
-app.get('/', function(req, res, next) {
-  res.redirect('index.json');
+// docs and spec routes
+app.get('/', function(req, res) {
+  fs.readFile(path.resolve(__dirname, 'index.json'), function(err, content) {
+    if (err) return next(err);
+
+    res.set('Content-Type', 'application/json').send(content);
+  });
+});
+
+app.get(apiBase, function(req, res) {
+  res.redirect(apiBase + '/docs');
+});
+
+app.get(apiBase + '/docs', function(req, res) {
+  fs.readFile(path.resolve(__dirname, 'docs.html'), function(err, content) {
+    if (err) return next(err);
+
+    res.set('Content-Type', 'text/html').send(content);
+  });
+});
+
+app.get(apiBase + '/spec', function(req, res) {
+  fs.readFile(path.resolve(__dirname, 'spec.raml'), function(err, content) {
+    if (err) return next(err);
+
+    res.set('Content-Type', 'application/raml+yaml').send(content);
+  });
 });
 
 // route: /runs
