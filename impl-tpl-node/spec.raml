@@ -2,12 +2,16 @@
 ---
 title: REST
 baseUri: http://{host}:{port}/api/{version}
-baseUriParameters:
+version: v1
+uriParameters:
   host:
     description: The host of the API (e.g., 'localhost')
+    displayName: Host
+    type: string
   port:
-    description: The port on the host where the API is served (e.g., '8080')
-version: v1
+    description: The port on the host where the API is served (e.g., 8080)
+    displayName: Port
+    type: number
 
 schemas:
   - run: |
@@ -81,7 +85,7 @@ schemas:
               "invoker_config": {
                 "access": "local"
               },
-              "mysql/port": "3306"
+              "some_param": "some_value"
             }
           }
     responses:
@@ -104,7 +108,7 @@ schemas:
                     "invoker_config": {
                       "access": "local"
                     },
-                    "mysql/port": "3306"
+                    "some_param": "some_value"
                   },
                   "_links": {
                     "self": "/runs/eae393ac-b766-4ffc-a69b-d41e37b3f5b2",
