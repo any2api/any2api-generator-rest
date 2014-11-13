@@ -77,7 +77,7 @@ var invoke = function(run, callback) {
     if (_.isEmpty(run.parameters)) run.parameters = {};
 
     var options = {
-      cwd: spec.invoker_path,
+      cwd: spec.invoker.path,
       env: {
         APISPEC: JSON.stringify(spec),
         PARAMETERS: JSON.stringify(run.parameters),
@@ -85,7 +85,7 @@ var invoke = function(run, callback) {
       }
     };
 
-    if (spec.implementation_port) options.env.PORT = spec.implementation_port;
+    if (spec.implementation.port) options.env.PORT = spec.implementation.port;
 
     exec('npm start', options, function(err, stdout, stderr) {
       run.results = run.results || {};
@@ -98,7 +98,7 @@ var invoke = function(run, callback) {
       run.status = 'finished';
       run.finished = new Date().toString();
 
-      var invokerConfig = JSON.parse(fs.readFileSync(path.join(spec.invoker_path, 'invoker.json')));
+      var invokerConfig = JSON.parse(fs.readFileSync(path.join(spec.invoker.path, 'invoker.json')));
       var results = invokerConfig.results || {};
 
       _.merge(results, spec.results);
@@ -113,7 +113,7 @@ var invoke = function(run, callback) {
 
           delete run.results.stderr;
         } else if (r.mapping === 'file' && r.file_path) {
-          run.results[name] = fs.readFileSync(path.join(spec.invoker_path, r.file_path), { encoding: 'utf8' });
+          run.results[name] = fs.readFileSync(path.join(spec.invoker.path, r.file_path), { encoding: 'utf8' });
         }
 
         if (r.type === 'object') {
