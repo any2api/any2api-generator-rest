@@ -1,7 +1,7 @@
 #%RAML 0.8
 ---
 title: REST
-baseUri: http://{host}:{port}/api/{version}
+baseUri: http://{host}/api/{version}
 version: v1
 #uriParameters:
 #  host:
@@ -79,15 +79,6 @@ schemas:
     body:
       application/json:
         schema: run
-        example: |
-          {
-            "parameters": {
-              "invoker_config": {
-                "access": "local"
-              },
-              "some_param": "some_value"
-            }
-          }
     responses:
       201:
         body:
@@ -95,33 +86,19 @@ schemas:
             schema: run
   /{runId}:
     get:
+      description: Get run details
       responses:
         200:
           body:
             application/json:
               schema: run
-              example: |
-                {
-                  "_id": "eae393ac-b766-4ffc-a69b-d41e37b3f5b2",
-                  "status": "running",
-                  "parameters": {
-                    "invoker_config": {
-                      "access": "local"
-                    },
-                    "some_param": "some_value"
-                  },
-                  "_links": {
-                    "self": "/runs/eae393ac-b766-4ffc-a69b-d41e37b3f5b2",
-                    "parent": "/runs"
-                  }
-                }
         404:
           body:
             application/json:
               example: |
                 { "message": "run missing" }
     put:
-      description: Update run to set status to 'running' if not already done
+      description: Update run to set status, e.g., to 'running'
       body:
         application/json:
           schema: run

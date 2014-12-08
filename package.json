@@ -1,6 +1,6 @@
 {
   "name": "any2api-generator-rest",
-  "version": "0.0.8",
+  "version": "0.1.0",
   "author": "Johannes Wettinger <mail@jojow.de>",
   "description": "REST API implementation generator for any2api",
   "repository": {
@@ -25,11 +25,13 @@
     "lodash": "~2.4.1",
     "async": "~0.9.0",
     "fs-extra": "~0.12.0",
-    "recursive-readdir": "~1.2.0",
     "js-yaml": "~3.2.2",
     "raml2html": "~1.0.4",
     "string": "~2.2.0",
     "any2api-util": "*"
+  },
+  "scripts": {
+    "update-api-console": "sh ./tpl/console/update.sh"
   },
   "engines": {
     "node": ">= 0.10"

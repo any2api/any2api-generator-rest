@@ -1,10 +1,11 @@
 {
   "name": "rest-node-api-impl",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "scripts": {
-    "prepare-runtime": "npm install && cd ./invoker && npm run prepare-runtime",
+    "prepare-runtime": "npm install -s && for INVOKER_DIR in ./invokers/*; do cd $INVOKER_DIR; npm run prepare-runtime; done",
     "start": "node ./bin/server",
-    "test": "mocha"
+    "test": "mocha",
+    "smoketest": "mocha smoketest"
   },
   "dependencies": {
     "express": "~4.9.0",
@@ -16,12 +17,18 @@
     "nedb": "~0.11",
     "uuid": "~2.0.0",
     "lodash": "~2.4.0",
-    "any2api-util": "*"
+    "recursive-readdir": "~1.2.0",
+    "async": "~0.9.0",
+    "temp": "~0.8.1",
+    "fs-extra": "~0.12.0",
+    "request": "~2.49.0",
+    "any2api-util": "*" 
   },
   "devDependencies": {
     "mocha": "~1.21.4",
     "chai": "~1.9.1",
     "supertest": "~0.14.0",
-    "async": "~0.9.0"
+    "js-yaml": "~3.2.2",
+    "string": "~2.2.0"
   }
 }
