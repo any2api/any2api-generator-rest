@@ -73,9 +73,9 @@ util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err,
 
   apiSpec = as;
 
-  index.spec = { href: '/api/v1/spec' };
-  index.docs = { href: '/api/v1/docs' };
-  index.console = { href: '/console' };
+  index._links.spec = { href: '/api/v1/spec' };
+  index._links.docs = { href: '/api/v1/docs' };
+  index._links.console = { href: '/console' };
 });
 
 
