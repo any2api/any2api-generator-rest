@@ -100,102 +100,114 @@ var preDbWrite = function(run) {
   return run;
 };
 
+var persistEmbeddedExecutable = function(executable, callback) {
+  if (!executable || !executable.files) return callback();
+
+  //TODO: support executable.tarball_url
+
+  debug('persisting executable', executable);
+
+  temp.mkdir('tmp-executable-' + executable.name, function(err, execPath) {
+    executable.path = execPath;
+
+    async.eachSeries(executable.files, function(file, callback) {
+      if (!file.path) return callback();
+
+      fs.mkdirs(path.join(execPath, path.dirname(file.path)), function(err) {
+        if (err) return callback(err);
+
+        debug('persisting file', file);
+
+        if (file.text) {
+          fs.writeFile(path.join(execPath, file.path), file.text, 'utf8', callback);
+        } else if (file.object) {
+          fs.writeFile(path.join(execPath, file.path), JSON.stringify(file.object), 'utf8', callback);
+        } else if (file.base64) {
+          fs.writeFile(path.join(execPath, file.path), file.base64, 'base64', callback);
+        } else if (file.url) {
+          request(file.url).pipe(fs.createWriteStream(path.join(execPath, file.path)))
+            .on('finish', callback)
+            .on('error', callback);
+        } else {
+          callback();
+        }
+      });
+    }, callback);
+  });
+};
+
 var invoke = function(run, callback) {
   debug('invocation triggered', run);
 
-  // API spec copy
-  var apiSpecCopy = util.cloneSpecSync(apiSpec); //TODO: make this async and write cloned spec in util/index.js!
-
-  // Executable and invoker path
+  var apiSpecCopy;
   var executable = null;
-  var invokerPath = null;
 
-  if (run._executable_name) {
-    executable = apiSpecCopy.executables[run._executable_name];
+  var invokerPath;
+  var invokerJson;
 
-    invokerPath = apiSpecCopy.invokers[executable.invoker_name].path;
-  } else if (run._invoker_name) {
-    invokerPath = apiSpecCopy.invokers[run._invoker_name].path;
-
-    if (run.executable) {
-      executable = run.executable;
-
-      executable.name = executable.name || 'embedded-' + uuid.v4();
-
-      executable.invoker_name = run._invoker_name;
-
-      apiSpecCopy.executables[executable.name] = executable;
-    }
-  }
-
-  if (executable) executable.name = run._executable_name || executable.name;
-
-  // Persist embedded executable
-  var persistEmbeddedExecutable = function(callback) {
-    if (!executable || !executable.files) return callback();
-
-    //TODO: support executable.tarball_url
-
-    debug('persisting executable', executable);
-
-    temp.mkdir('tmp-executable-' + executable.name, function(err, execPath) {
-      executable.path = execPath;
-
-      async.eachSeries(executable.files, function(file, callback) {
-        if (!file.path) return callback();
-
-        fs.mkdirs(path.join(execPath, path.dirname(file.path)), function(err) {
-          if (err) return callback(err);
-
-          debug('persisting file', file);
-
-          if (file.text) {
-            fs.writeFile(path.join(execPath, file.path), file.text, 'utf8', callback);
-          } else if (file.object) {
-            fs.writeFile(path.join(execPath, file.path), JSON.stringify(file.object), 'utf8', callback);
-          } else if (file.base64) {
-            fs.writeFile(path.join(execPath, file.path), file.base64, 'base64', callback);
-          } else if (file.url) {
-            request(file.url).pipe(fs.createWriteStream(path.join(execPath, file.path)))
-              .on('finish', callback)
-              .on('error', callback);
-          } else {
-            callback();
-          }
-        });
-      }, callback);
-    });
-  };
-  
-  // Read invoker.json
-  var invokerJson = JSON.parse(fs.readFileSync(path.join(invokerPath, 'invoker.json')));
-
-  // Process parameters
-  var paramsRequired = invokerJson.parameters_required || [];
-  var paramsSchema = invokerJson.parameters_schema;
-
-  if (_.isEmpty(run.parameters)) run.parameters = {};
-
-  var runParams = { run_id: run._id, run_path: temp.path({ prefix: 'tmp-run-' }) };
-  var enrichedParams = _.clone(run.parameters);
-  enrichedParams._ = runParams;
-
-  if (executable) {
-    runParams.executable_name = executable.name;
-    paramsRequired = _.uniq(paramsRequired.concat(executable.parameters_required || []));
-    paramsSchema = _.extend(paramsSchema, executable.parameters_schema)
-  }
-
-  _.each(paramsSchema, function(p, name) {
-    if (_.contains(paramsRequired, name) && !enrichedParams[name] && p.default) {
-      enrichedParams[name] = p.default;
-    }
-  });
-
-  debug('enriched params', enrichedParams);
+  var runParams;
+  var enrichedParams;
 
   async.series([
-    async.apply(persistEmbeddedExecutable),
+    function(callback) {
+      util.cloneSpec({ apiSpec: apiSpec }, function(err, as) {
+        apiSpecCopy = as;
+
+        callback(err);
+      });
+    },
+    function(callback) {
+      // Executable
+      if (run._executable_name) {
+        executable = apiSpecCopy.executables[run._executable_name];
+
+        invokerPath = apiSpecCopy.invokers[executable.invoker_name].path;
+      } else if (run._invoker_name) {
+        invokerPath = apiSpecCopy.invokers[run._invoker_name].path;
+
+        if (run.executable) {
+          executable = run.executable;
+
+          executable.name = executable.name || 'embedded-' + uuid.v4();
+
+          executable.invoker_name = run._invoker_name;
+
+          apiSpecCopy.executables[executable.name] = executable;
+        }
+      }
+
+      if (executable) executable.name = run._executable_name || executable.name;
+
+      // Read invoker.json
+      invokerJson = JSON.parse(fs.readFileSync(path.join(invokerPath, 'invoker.json')));
+
+      // Process parameters
+      var paramsRequired = invokerJson.parameters_required || [];
+      var paramsSchema = invokerJson.parameters_schema;
+
+      if (_.isEmpty(run.parameters)) run.parameters = {};
+
+      runParams = { run_id: run._id, run_path: temp.path({ prefix: 'tmp-run-' }) };
+      enrichedParams = _.clone(run.parameters);
+      enrichedParams._ = runParams;
+
+      if (executable) {
+        runParams.executable_name = executable.name;
+        paramsRequired = _.uniq(paramsRequired.concat(executable.parameters_required || []));
+        paramsSchema = _.extend(paramsSchema, executable.parameters_schema)
+      }
+
+      _.each(paramsSchema, function(p, name) {
+        if (_.contains(paramsRequired, name) && !enrichedParams[name] && p.default) {
+          enrichedParams[name] = p.default;
+        }
+      });
+
+      debug('enriched params', enrichedParams);
+
+      callback();
+    },
+    async.apply(persistEmbeddedExecutable, executable),
     function(callback) {
       if (executable && !executable.prepared) {
         debug('preparing buildtime');
