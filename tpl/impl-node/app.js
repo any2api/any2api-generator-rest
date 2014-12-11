@@ -207,7 +207,9 @@ var invoke = function(run, callback) {
 
       callback();
     },
-    async.apply(persistEmbeddedExecutable, executable),
+    function(callback) {
+      persistEmbeddedExecutable(executable, callback);
+    },
     function(callback) {
       if (executable && !executable.prepared) {
         debug('preparing buildtime');
@@ -313,8 +315,12 @@ var invoke = function(run, callback) {
     preDbWrite(run);
 
     async.parallel([
-      async.apply(fs.remove, runParams.run_path),
-      async.apply(fs.remove, apiSpecCopy.apispec_path),
+      function(callback) {
+        fs.remove(runParams.run_path, callback);
+      },
+      function(callback) {
+        fs.remove(apiSpecCopy.apispec_path);
+      },
       function(callback) {
         db.update({ _id: run._id }, run, {}, callback);
       }
