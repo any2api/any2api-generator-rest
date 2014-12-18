@@ -14,7 +14,6 @@ var async = require('async');
 var request = require('request');
 var _ = require('lodash');
 var recursive = require('recursive-readdir');
-var temp = require('temp').track();
 var pkg = require('./package.json');
 var debug = require('debug')(pkg.name);
 
@@ -100,235 +99,18 @@ var preDbWrite = function(run) {
   return run;
 };
 
-var persistEmbeddedExecutable = function(executable, callback) {
-  if (!executable || !executable.files) return callback();
-
-  //TODO: support executable.tarball_url
-
-  debug('persisting executable', executable);
-
-  temp.mkdir('tmp-executable-' + executable.name, function(err, execPath) {
-    executable.path = execPath;
-
-    async.eachSeries(executable.files, function(file, callback) {
-      if (!file.path) return callback();
-
-      fs.mkdirs(path.join(execPath, path.dirname(file.path)), function(err) {
-        if (err) return callback(err);
-
-        debug('persisting file', file);
-
-        if (file.text) {
-          fs.writeFile(path.join(execPath, file.path), file.text, 'utf8', callback);
-        } else if (file.object) {
-          fs.writeFile(path.join(execPath, file.path), JSON.stringify(file.object), 'utf8', callback);
-        } else if (file.base64) {
-          fs.writeFile(path.join(execPath, file.path), file.base64, 'base64', callback);
-        } else if (file.url) {
-          request(file.url).pipe(fs.createWriteStream(path.join(execPath, file.path)))
-            .on('finish', callback)
-            .on('error', callback);
-        } else {
-          callback();
-        }
-      });
-    }, callback);
-  });
-};
-
 var invoke = function(run, callback) {
-  debug('invocation triggered', run);
+  callback = callback || function(err) {
+    if (err) console.error(err);
+  };
 
-  var apiSpecCopy;
-  var executable = null;
-
-  var invokerPath;
-  var invokerJson;
-
-  var runParams;
-  var enrichedParams;
-
-  async.series([
-    function(callback) {
-      util.cloneSpec({ apiSpec: apiSpec }, function(err, as) {
-        apiSpecCopy = as;
-
-        callback(err);
-      });
-    },
-    function(callback) {
-      // Executable
-      if (run._executable_name) {
-        executable = apiSpecCopy.executables[run._executable_name];
-
-        invokerPath = apiSpecCopy.invokers[executable.invoker_name].path;
-      } else if (run._invoker_name) {
-        invokerPath = apiSpecCopy.invokers[run._invoker_name].path;
-
-        if (run.executable) {
-          executable = run.executable;
-
-          executable.name = executable.name || 'embedded-' + uuid.v4();
-
-          executable.invoker_name = run._invoker_name;
-
-          apiSpecCopy.executables[executable.name] = executable;
-        }
-      }
-
-      if (executable) executable.name = run._executable_name || executable.name;
-
-      // Read invoker.json
-      invokerJson = JSON.parse(fs.readFileSync(path.join(invokerPath, 'invoker.json')));
-
-      // Process parameters
-      var paramsRequired = invokerJson.parameters_required || [];
-      var paramsSchema = invokerJson.parameters_schema;
-
-      if (_.isEmpty(run.parameters)) run.parameters = {};
-
-      runParams = { run_id: run._id, run_path: temp.path({ prefix: 'tmp-run-' }) };
-      enrichedParams = _.clone(run.parameters);
-      enrichedParams._ = runParams;
-
-      if (executable) {
-        runParams.executable_name = executable.name;
-        paramsRequired = _.uniq(paramsRequired.concat(executable.parameters_required || []));
-        paramsSchema = _.extend(paramsSchema, executable.parameters_schema)
-      }
-
-      _.each(paramsSchema, function(p, name) {
-        if (_.contains(paramsRequired, name) && !enrichedParams[name] && p.default) {
-          enrichedParams[name] = p.default;
-        }
-      });
-
-      debug('enriched params', enrichedParams);
-
-      callback();
-    },
-    function(callback) {
-      persistEmbeddedExecutable(executable, callback);
-    },
-    function(callback) {
-      if (executable && !executable.prepared) {
-        debug('preparing buildtime');
-
-        util.prepareBuildtime({ apiSpec: apiSpecCopy,
-                                preparedInvokers: preparedInvokers,
-                                executable_name: run._executable_name || executable.name },
-                              callback);
-      } else {
-        callback();
-      }
-    },
-    function(callback) {
-      if (executable && !executable.prepared) {
-        debug('preparing executable');
-
-        var updateSpecCallback = function(err, updApiSpec) {
-          if (err) return callback(err);
-
-          if (updApiSpec) apiSpecCopy = updApiSpec;
-
-          callback();
-        };
-
-        util.prepareExecutable({ apiSpec: apiSpecCopy,
-                                 executable_name: run._executable_name || executable.name },
-                               updateSpecCallback);
-      } else {
-        callback();
-      }
-    },
-    function(callback) {
-      debug('running executable');
-
-      var options = {
-        cwd: invokerPath,
-        env: {
-          APISPEC: JSON.stringify(apiSpecCopy),
-          PARAMETERS: JSON.stringify(enrichedParams),
-          PATH: process.env.PATH
-        }
-      };
-
-      exec('npm start', options, function(err, stdout, stderr) {
-        debug('run complete');
-
-        run.results = run.results || {};
-
-        run.results.stdout = stdout;
-        run.results.stderr = stderr;
-
-        callback(err);
-      });
-    },
-    function(callback) {
-      var results_schema = invokerJson.results_schema || {};
-
-      if (executable) _.extend(results_schema, executable.results_schema);
-
-      var filesDir = runParams.run_path || invokerPath;
-
-      async.eachSeries(_.keys(results_schema), function(name, callback) {
-        var r = results_schema[name];
-
-        if (r.mapping === 'stdout') {
-          run.results[name] = run.results.stdout;
-
-          delete run.results.stdout;
-        } else if (r.mapping === 'stderr') {
-          run.results[name] = run.results.stderr;
-
-          delete run.results.stderr;
-        } else if (r.mapping === 'file' && r.file_path) {
-          var filePath = path.resolve(filesDir, r.file_path);
-
-          if (!fs.existsSync(filePath)) {
-            return callback(new Error('results file missing: ' + filePath));
-          }
-
-          run.results[name] = fs.readFileSync(filePath, 'utf8');
-        }
-
-        if (r.type === 'object') {
-          run.results[name] = JSON.parse(run.results[name]);
-        }
-
-        callback();
-      }, callback);
-    }
-  ], function(err) {
-    if (err) {
-      console.error(err);
-
-      run.status = 'error';
-      run.failed = new Date().toString();
-
-      run.error = err.message;
-    } else {
-      run.status = 'finished';
-      run.finished = new Date().toString();
-    }
-
+  util.invokeExecutable({ apiSpec: apiSpec,
+                          run: run,
+                          executable_name: run._executable_name,
+                          invoker_name: run._invoker_name }, function(err, r) {
     preDbWrite(run);
 
-    async.parallel([
-      function(callback) {
-        fs.remove(runParams.run_path, callback);
-      },
-      function(callback) {
-        fs.remove(apiSpecCopy.apispec_path);
-      },
-      function(callback) {
-        db.update({ _id: run._id }, run, {}, callback);
-      }
-    ], function(err2) {
-      if (err2) console.error(err2);
-
-      if (callback) callback(err);
-    });
+    db.update({ _id: run._id }, r, {}, callback);
   });
 };
 

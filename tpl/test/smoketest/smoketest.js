@@ -37,7 +37,7 @@ var runLocalEmbedded = {
         "object": {
           "name": "embedded",
           "dependencies": {
-            "mysql": ">= 0.0.0"
+            "mysql": "= 5.6.1"
           }
         }
       },
