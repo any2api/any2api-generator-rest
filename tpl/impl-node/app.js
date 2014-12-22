@@ -21,9 +21,6 @@ var util = require('any2api-util');
 
 var validStatus = [ 'prepare', 'running', 'finished', 'error' ];
 
-var nodeBinDir = path.resolve(process.execPath, '..'); // '/usr/local/opt/nvm/v0.10.33/bin'
-if (nodeBinDir) process.env.PATH = nodeBinDir + path.delimiter + process.env.PATH;
-
 
 
 var app = express();
