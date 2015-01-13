@@ -10,17 +10,17 @@ var host = process.env.HOST || 'http://localhost:3000';
 var baseUrl = host + '/api/v1';
 
 var invokerName = process.env.INVOKER_NAME;
-var invokerUrl = baseUrl + '/invokers/' + invokerName + '/runs';
+var invokerUrl = baseUrl + '/invokers/' + invokerName + '/instances';
 
 var executableName = process.env.EXECUTABLE_NAME;
-var executableUrl = baseUrl + '/executables/' + executableName + '/runs';
+var executableUrl = baseUrl + '/executables/' + executableName + '/instances';
 
 var interval = 1000 * 5; // 5 seconds
 var timeout = 1000 * 60 * 15; // 15 minutes
 
-var runLocalEmpty = { parameters: {} };
+var instanceLocalEmpty = { parameters: {} };
 
-var runLocalEmbedded = {
+var instanceLocalEmbedded = {
   "parameters": {
     "run_list": [
       "recipe[embedded]"
@@ -53,8 +53,8 @@ var runLocalEmbedded = {
   }
 };
 
-var runSshEmpty = _.cloneDeep(runLocalEmpty);
-runSshEmpty.parameters = _.extend(runSshEmpty.parameters, { invoker_config: {
+var instanceSshEmpty = _.cloneDeep(instanceLocalEmpty);
+instanceSshEmpty.parameters = _.extend(instanceSshEmpty.parameters, { invoker_config: {
   access: 'ssh',
   ssh_port: process.env.SSH_PORT || 22,
   ssh_host: process.env.SSH_HOST || 'localhost',
@@ -62,8 +62,8 @@ runSshEmpty.parameters = _.extend(runSshEmpty.parameters, { invoker_config: {
   ssh_private_key: process.env.SSH_PRIVATE_KEY || 'none'
 } });
 
-var runSshEmbedded = _.cloneDeep(runLocalEmbedded);
-runSshEmbedded.parameters = _.extend(runSshEmbedded.parameters, { invoker_config: {
+var instanceSshEmbedded = _.cloneDeep(instanceLocalEmbedded);
+instanceSshEmbedded.parameters = _.extend(instanceSshEmbedded.parameters, { invoker_config: {
   access: 'ssh',
   ssh_port: process.env.SSH_PORT || 22,
   ssh_host: process.env.SSH_HOST || 'localhost',
@@ -80,7 +80,7 @@ describe('smoke test', function() {
   it('run registered executable on localhost', function(done) {
     if (!executableName) return done();
 
-    performRequest(executableUrl, runLocalEmpty, function(err) {
+    performRequest(executableUrl, instanceLocalEmpty, function(err) {
       if (err) throw err;
 
       done();
@@ -90,7 +90,7 @@ describe('smoke test', function() {
   it('run embedded executable on localhost', function(done) {
     if (!invokerName) return done();
 
-    performRequest(invokerUrl, runLocalEmbedded, function(err) {
+    performRequest(invokerUrl, instanceLocalEmbedded, function(err) {
       if (err) throw err;
 
       done();
@@ -100,7 +100,7 @@ describe('smoke test', function() {
   it('run registered executable remotely through SSH', function(done) {
     if (!executableName) return done();
 
-    performRequest(executableUrl, runSshEmpty, function(err) {
+    performRequest(executableUrl, instanceSshEmpty, function(err) {
       if (err) throw err;
 
       done();
@@ -110,7 +110,7 @@ describe('smoke test', function() {
   it('run embedded executable remotely through SSH', function(done) {
     if (!invokerName) return done();
 
-    performRequest(invokerUrl, runSshEmbedded, function(err) {
+    performRequest(invokerUrl, instanceSshEmbedded, function(err) {
       if (err) throw err;
 
       done();
@@ -120,10 +120,10 @@ describe('smoke test', function() {
 
 
 
-var performRequest = function(url, run, done) {
+var performRequest = function(url, instance, done) {
   request(url)
     .post('/')
-    .send(run)
+    .send(instance)
     .set('Accept', 'application/json')
     .expect('Content-Type', /json/)
     .expect(201)

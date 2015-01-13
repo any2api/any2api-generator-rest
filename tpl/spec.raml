@@ -14,7 +14,7 @@ version: v1
 #    type: number
 
 schemas:
-  - run: |
+  - instance: |
       {
         "$schema": "http://json-schema.org/draft-04/schema#",
         "type": "object",
@@ -52,62 +52,62 @@ schemas:
         },
         "required": [ "parameters" ]
       }
-  - runCollection: |
+  - instanceCollection: |
       {
         "$schema": "http://json-schema.org/draft-04/schema#",
         "type": "array",
-        "description": "List of runs"
+        "description": "List of instances"
       }
 
 
-/runs:
+/instances:
   get:
-    description: List all runs
+    description: List all instances
     queryParameters:
       status:
         type: string
-        description: Filter runs by status ('running', 'finished', etc.)
+        description: Filter instances by status ('running', 'finished', etc.)
         example: running
         required: false
     responses:
       200:
         body:
           application/json:
-            schema: runCollection
+            schema: instanceCollection
   post:
-    description: Add a new run
+    description: Add a new instance
     body:
       application/json:
-        schema: run
+        schema: instance
     responses:
       201:
         body:
           application/json:
-            schema: run
-  /{runId}:
+            schema: instance
+  /{instanceId}:
     get:
-      description: Get run details
+      description: Get instance details
       responses:
         200:
           body:
             application/json:
-              schema: run
+              schema: instance
         404:
           body:
             application/json:
               example: |
-                { "message": "run missing" }
+                { "message": "instance missing" }
     put:
-      description: Update run to set status, e.g., to 'running'
+      description: Update instance to set status, e.g., to 'running'
       body:
         application/json:
-          schema: run
+          schema: instance
           example: |
             { "status": "running" }
       responses:
         200:
           body:
             application/json:
-              schema: run
+              schema: instance
     delete:
-      description: Delete run permanently
+      description: Delete instance permanently

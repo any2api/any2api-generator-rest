@@ -13,7 +13,7 @@ var host = process.env.HOST || ''; // 'http://localhost:3000'
 
 var baseUrl = host + '/api/v1';
 
-var emptyRun = { parameters: {} };
+var emptyInstance = { parameters: {} };
 
 var interval = 1000 * 5; // 5 seconds
 var timeout = 1000 * 60 * 15; // 15 minutes
@@ -57,7 +57,7 @@ describe('minimum test', function() {
 var performRequest = function(url, done) {
   request(app)
     .post(url)
-    .send(emptyRun)
+    .send(emptyInstance)
     .set('Accept', 'application/json')
     .expect('Content-Type', /json/)
     .expect(201)

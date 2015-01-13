@@ -39,7 +39,7 @@ var apiBase = '/api/v1';
 
 var preparedInvokers = {};
 
-var db = new NeDB({ filename: 'runs.db', autoload: true });
+var db = new NeDB({ filename: 'instances.db', autoload: true });
 db.persistence.setAutocompactionInterval(5000);
 
 // Generate index
@@ -76,46 +76,46 @@ util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err,
 
 
 
-var postDbRead = function(run) {
+var postDbRead = function(instance) {
   var prefix = '';
 
-  if (run._invoker_name) prefix = '/invokers/' + run._invoker_name;
-  else if (run._executable_name) prefix = '/executables/' + run._executable_name;
+  if (instance._invoker_name) prefix = '/invokers/' + instance._invoker_name;
+  else if (instance._executable_name) prefix = '/executables/' + instance._executable_name;
 
-  run._links = {
-    self: { href: apiBase + prefix + '/runs/' + run._id },
-    parent: { href: apiBase + prefix + '/runs' }
+  instance._links = {
+    self: { href: apiBase + prefix + '/instances/' + instance._id },
+    parent: { href: apiBase + prefix + '/instances' }
   };
 
-  return run;
+  return instance;
 };
 
-var preDbWrite = function(run) {
-  delete run._links;
+var preDbWrite = function(instance) {
+  delete instance._links;
 
-  return run;
+  return instance;
 };
 
-var invoke = function(run, callback) {
+var invoke = function(instance, callback) {
   callback = callback || function(err) {
     if (err) console.error(err);
   };
 
   util.invokeExecutable({ apiSpec: apiSpec,
-                          run: run,
-                          executable_name: run._executable_name,
-                          invoker_name: run._invoker_name }, function(err, r) {
-    preDbWrite(run);
+                          instance: instance,
+                          executable_name: instance._executable_name,
+                          invoker_name: instance._invoker_name }, function(err, r) {
+    preDbWrite(instance);
 
-    db.update({ _id: run._id }, r, {}, callback);
+    db.update({ _id: instance._id }, r, {}, callback);
   });
 };
 
 
 
 //TODO add routes:
-//  /runs/<id>/parameters/<name>
-//  /runs/<id>/results/<name>
+//  /instances/<id>/parameters/<name>
+//  /instances/<id>/results/<name>
 
 
 
@@ -148,8 +148,8 @@ app.get(apiBase + '/spec', function(req, res, next) {
   });
 });
 
-// route: */runs
-var getRuns = function(req, res, next) {
+// route: */instances
+var getInstances = function(req, res, next) {
   var find = {};
 
   if (req.param('invoker')) find._invoker_name = req.param('invoker'); //{ $exists: true }
@@ -157,29 +157,29 @@ var getRuns = function(req, res, next) {
 
   if (req.param('status')) find.status = req.param('status');
 
-  db.find(find, function(err, runs) {
+  db.find(find, function(err, instances) {
     if (err) return next(err);
 
-    _.each(runs, function(run) {
-      postDbRead(run);
+    _.each(instances, function(instance) {
+      postDbRead(instance);
     });
 
-    res.jsonp(runs);
+    res.jsonp(instances);
   });
 };
 
-var postRuns = function(req, res, next) {
-  var run = req.body;
-  run._id = uuid.v4();
+var postInstances = function(req, res, next) {
+  var instance = req.body;
+  instance._id = uuid.v4();
 
-  if (!run.status) run.status = 'running';
+  if (!instance.status) instance.status = 'running';
 
-  if (!_.contains(validStatus, run.status)) {
-    var e = new Error('Invalid status = \'' + run.status + '\'');
+  if (!_.contains(validStatus, instance.status)) {
+    var e = new Error('Invalid status = \'' + instance.status + '\'');
     e.status = 400;
 
     return next(e);
-  } else if (run._invoker_name && _.isEmpty(run.executable)) {
+  } else if (instance._invoker_name && _.isEmpty(instance.executable)) {
     var e = new Error('Executable must be specified');
     e.status = 400;
 
@@ -187,115 +187,115 @@ var postRuns = function(req, res, next) {
   }
 
   if (req.param('invoker')) {
-    run._invoker_name = req.param('invoker');
+    instance._invoker_name = req.param('invoker');
 
-    delete run._executable_name;
+    delete instance._executable_name;
   } else if (req.param('executable')) {
-    run._executable_name = req.param('executable');
+    instance._executable_name = req.param('executable');
 
-    delete run._invoker_name;
+    delete instance._invoker_name;
   }
 
-  run.created = new Date().toString();
+  instance.created = new Date().toString();
 
-  delete run.id;
-  delete run._links;
+  delete instance.id;
+  delete instance._links;
 
-  db.findOne({ _id: run._id }, function(err, existingRun) {
+  db.findOne({ _id: instance._id }, function(err, existingInstance) {
     if (err) return next(err);
 
-    if (existingRun) {
-      var e = new Error('Run already exists with id = \'' + run._id + '\'');
+    if (existingInstance) {
+      var e = new Error('Instance already exists with id = \'' + instance._id + '\'');
       e.status = 409;
 
       return next(e);
     }
 
-    db.insert(run, function(err, insertedRun) {
+    db.insert(instance, function(err, insertedInstance) {
       if (err) return next(err);
 
-      run = insertedRun;
+      instance = insertedInstance;
 
-      postDbRead(run);
+      postDbRead(instance);
 
-      if (run._executable_name) {
-        res.set('Location', apiBase + '/executables/' + run._executable_name + '/runs/' + run._id);
-      } else if (run._invoker_name) {
-        res.set('Location', apiBase + '/invokers/' + run._invoker_name + '/runs/' + run._id);
+      if (instance._executable_name) {
+        res.set('Location', apiBase + '/executables/' + instance._executable_name + '/instances/' + instance._id);
+      } else if (instance._invoker_name) {
+        res.set('Location', apiBase + '/invokers/' + instance._invoker_name + '/instances/' + instance._id);
       }
       
-      res.status(201).jsonp(run);
+      res.status(201).jsonp(instance);
 
-      if (run.status === 'running') invoke(run);
+      if (instance.status === 'running') invoke(instance);
     });
   });
 };
 
-// route: */runs/<id>
-var getRun = function(req, res, next) {
+// route: */instances/<id>
+var getInstance = function(req, res, next) {
   var find = { _id: req.param('id') };
 
-  db.findOne(find, function(err, run) {
+  db.findOne(find, function(err, instance) {
     if (err) return next(err);
 
-    if (!run) {
-      var e = new Error('No run found with id = \'' + req.param('id') + '\'');
+    if (!instance) {
+      var e = new Error('No instance found with id = \'' + req.param('id') + '\'');
       e.status = 404;
 
       return next(e);
     }
 
-    postDbRead(run);
+    postDbRead(instance);
 
-    res.jsonp(run);
+    res.jsonp(instance);
   });
 };
 
-var putRun = function(req, res, next) {
+var putInstance = function(req, res, next) {
   var find = { _id: req.param('id') };
 
   if (!_.contains(validStatus, req.body.status)) {
-    var e = new Error('Invalid status = \'' + run.status + '\'');
+    var e = new Error('Invalid status = \'' + instance.status + '\'');
     e.status = 400;
 
     return next(e);
   }
 
-  db.findOne(find, function(err, run) {
+  db.findOne(find, function(err, instance) {
     if (err) return next(err);
 
-    if (!run) {
-      var e = new Error('No run found with id = \'' + req.param('id') + '\'');
+    if (!instance) {
+      var e = new Error('No instance found with id = \'' + req.param('id') + '\'');
       e.status = 404;
 
       return next(e);
     }
 
-    if (run.status !== 'prepare') {
-      var e = new Error('Run can only be updated if status = \'prepare\'');
+    if (instance.status !== 'prepare') {
+      var e = new Error('Instance can only be updated if status = \'prepare\'');
       e.status = 400;
 
       return next(e);
     }
 
     _.each(req.body, function(val, key) {
-      if (val === null) delete run[key];
-      else run[key] = val;
+      if (val === null) delete instance[key];
+      else instance[key] = val;
     });
 
-    db.update({ _id: run._id }, run, {}, function(err, numUpdated) {
+    db.update({ _id: instance._id }, instance, {}, function(err, numUpdated) {
       if (err) return next(err);
 
-      postDbRead(run);
+      postDbRead(instance);
 
-      res.jsonp(run);
+      res.jsonp(instance);
 
-      if (run.status === 'running') invoke(run);
+      if (instance.status === 'running') invoke(instance);
     });
   });
 };
 
-var deleteRun = function(req, res, next) {
+var deleteInstance = function(req, res, next) {
   var find = { _id: req.param('id') };
 
   db.remove(find, {}, function(err, numRemoved) {
@@ -308,17 +308,17 @@ var deleteRun = function(req, res, next) {
 
 
 // register routes
-app.get(apiBase + '/executables/:executable/runs', getRuns);
-app.post(apiBase + '/executables/:executable/runs', postRuns);
-app.get(apiBase + '/executables/:executable/runs/:id', getRun);
-app.put(apiBase + '/executables/:executable/runs/:id', putRun);
-app.delete(apiBase + '/executables/:executable/runs/:id', deleteRun);
+app.get(apiBase + '/executables/:executable/instances', getInstances);
+app.post(apiBase + '/executables/:executable/instances', postInstances);
+app.get(apiBase + '/executables/:executable/instances/:id', getInstance);
+app.put(apiBase + '/executables/:executable/instances/:id', putInstance);
+app.delete(apiBase + '/executables/:executable/instances/:id', deleteInstance);
 
-app.get(apiBase + '/invokers/:invoker/runs', getRuns);
-app.post(apiBase + '/invokers/:invoker/runs', postRuns);
-app.get(apiBase + '/invokers/:invoker/runs/:id', getRun);
-app.put(apiBase + '/invokers/:invoker/runs/:id', putRun);
-app.delete(apiBase + '/invokers/:invoker/runs/:id', deleteRun);
+app.get(apiBase + '/invokers/:invoker/instances', getInstances);
+app.post(apiBase + '/invokers/:invoker/instances', postInstances);
+app.get(apiBase + '/invokers/:invoker/instances/:id', getInstance);
+app.put(apiBase + '/invokers/:invoker/instances/:id', putInstance);
+app.delete(apiBase + '/invokers/:invoker/instances/:id', deleteInstance);
 
 
 
