@@ -7,7 +7,7 @@ TEMP_DIR="/tmp/api-console"
 
 git clone https://github.com/mulesoft/api-console.git $TEMP_DIR
 
-for DIR in "authentication" "fonts" "scripts" "styles"; do
+for DIR in "img" "authentication" "fonts" "scripts" "styles"; do
   rm -rf $BASE_DIR/$DIR
   cp -a $TEMP_DIR/dist/$DIR $BASE_DIR/$DIR
 done
