@@ -8,10 +8,8 @@ var NeDB = require('nedb');
 
 var exec = require('child_process').exec;
 var path = require('path');
-var fs = require('fs-extra');
+var fs = require('fs');
 var uuid = require('uuid');
-var async = require('async');
-var request = require('request');
 var _ = require('lodash');
 var recursive = require('recursive-readdir');
 var pkg = require('./package.json');
