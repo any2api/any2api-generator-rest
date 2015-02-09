@@ -16,7 +16,7 @@ var baseUrl = host + '/api/v1';
 var emptyInstance = { parameters: {} };
 
 var interval = 1000 * 5; // 5 seconds
-var timeout = 1000 * 60 * 15; // 15 minutes
+var timeout = 1000 * 60 * 20; // 20 minutes
 
 
 
