@@ -6,8 +6,8 @@ var path = require('path');
 var async = require('async');
 var _ = require('lodash');
 
-var host = process.env.HOST || 'http://localhost:3000';
-var baseUrl = host + '/api/v1';
+var baseAddress = process.env.BASE_ADDRESS || 'http://localhost:3000';
+var baseUrl = baseAddress + '/api/v1';
 
 var invokerName = process.env.INVOKER_NAME;
 var invokerUrl = baseUrl + '/invokers/' + invokerName + '/instances';
@@ -134,7 +134,7 @@ var performRequest = function(url, instance, done) {
       expect(res.body.status).to.equal('running');
 
       var intervalObj = setInterval(function() {
-        request(host)
+        request(baseAddress)
           .get(res.header.location)
           .set('Accept', 'application/json')
           .expect('Content-Type', /json/)

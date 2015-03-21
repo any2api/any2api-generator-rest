@@ -9,9 +9,9 @@ var _ = require('lodash');
 var S = require('string');
 var app = require('../app');
 
-var host = process.env.HOST || ''; // 'http://localhost:3000'
+var baseAddress = process.env.BASE_ADDRESS || ''; // 'http://localhost:3000'
 
-var baseUrl = host + '/api/v1';
+var baseUrl = baseAddress + '/api/v1';
 
 var emptyInstance = { parameters: {} };
 
