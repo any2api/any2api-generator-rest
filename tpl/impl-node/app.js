@@ -4,8 +4,6 @@ var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
 
-var NeDB = require('nedb');
-
 var exec = require('child_process').exec;
 var path = require('path');
 var fs = require('fs');
@@ -16,6 +14,7 @@ var pkg = require('./package.json');
 var debug = require('debug')(pkg.name);
 
 var util = require('any2api-util');
+var InstanceDB = require('any2api-instancedb-redis');
 
 var validStatus = [ 'prepare', 'running', 'finished', 'error' ];
 
@@ -31,14 +30,20 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'static')));
 
-
-
 var apiBase = '/api/v1';
 
-var preparedInvokers = {};
+var dbConfig = {};
 
-var db = new NeDB({ filename: 'instances.db', autoload: true });
-db.persistence.setAutocompactionInterval(5000);
+if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
+  dbConfig.redisConfig = {
+    host: process.env.REDIS_HOST,
+    port: process.env.REDIS_PORT
+  };
+}
+
+var db = InstanceDB(dbConfig);
+
+
 
 // Generate index
 var staticPath = path.join(__dirname, 'static');
@@ -74,46 +79,61 @@ util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err,
 
 
 
-var postDbRead = function(instance) {
+var postDbRead = function(instance, executableName, invokerName) {
   var prefix = '';
 
-  if (instance._invoker_name) prefix = '/invokers/' + instance._invoker_name;
-  else if (instance._executable_name) prefix = '/executables/' + instance._executable_name;
+  if (executableName) prefix = '/executables/' + executableName;
+  else if (invokerName) prefix = '/invokers/' + invokerName;
 
   instance._links = {
-    self: { href: apiBase + prefix + '/instances/' + instance._id },
+    self: { href: apiBase + prefix + '/instances/' + instance.id },
     parent: { href: apiBase + prefix + '/instances' }
   };
+
+  if (!_.isEmpty(instance.parameters_list)) {
+    instance._links.parameters = [];
+
+    _.each(instance.parameters_list, function(name) {
+      instance._links.parameters.push({
+        href: apiBase + prefix + '/instances/' + instance.id + '/parameters/' + name
+      });
+    });
+  }
+
+  if (!_.isEmpty(instance.results_list)) {
+    instance._links.results = [];
+
+    _.each(instance.results_list, function(name) {
+      instance._links.results.push({
+        href: apiBase + prefix + '/instances/' + instance.id + '/results/' + name
+      });
+    });
+  }
 
   return instance;
 };
 
 var preDbWrite = function(instance) {
+  delete instance._id;
   delete instance._links;
 
   return instance;
 };
 
-var invoke = function(instance, callback) {
+var invoke = function(instance, executableName, invokerName, callback) {
   callback = callback || function(err) {
     if (err) console.error(err);
   };
 
   util.invokeExecutable({ apiSpec: apiSpec,
                           instance: instance,
-                          executable_name: instance._executable_name,
-                          invoker_name: instance._invoker_name }, function(err, r) {
+                          executable_name: executableName,
+                          invoker_name: invokerName }, function(err, instance) {
     preDbWrite(instance);
 
-    db.update({ _id: instance._id }, r, {}, callback);
+    db.instances.set({ instance: instance, executableName: executableName, invokerName: invokerName }, callback);
   });
 };
-
-
-
-//TODO add routes:
-//  /instances/<id>/parameters/<name>
-//  /instances/<id>/results/<name>
 
 
 
@@ -148,18 +168,22 @@ app.get(apiBase + '/spec', function(req, res, next) {
 
 // route: */instances
 var getInstances = function(req, res, next) {
-  var find = {};
+  var args = {
+    status: req.query.status,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
 
-  if (req.param('invoker')) find._invoker_name = req.param('invoker'); //{ $exists: true }
-  else if (req.param('executable')) find._executable_name = req.param('executable'); //{ $exists: true }
+  //if (req.param('invoker')) find._invoker_name = req.param('invoker'); //{ $exists: true }
+  //else if (req.param('executable')) find._executable_name = req.param('executable'); //{ $exists: true }
 
-  if (req.param('status')) find.status = req.param('status');
-
-  db.find(find, function(err, instances) {
+  db.instances.getAll(args, function(err, instances) {
     if (err) return next(err);
 
+    instances = _.toArray(instances);
+
     _.each(instances, function(instance) {
-      postDbRead(instance);
+      postDbRead(instance, req.params.executable, req.params.invoker);
     });
 
     res.jsonp(instances);
@@ -168,7 +192,7 @@ var getInstances = function(req, res, next) {
 
 var postInstances = function(req, res, next) {
   var instance = req.body;
-  instance._id = uuid.v4();
+  instance.id = uuid.v4();
 
   if (!instance.status) instance.status = 'running';
 
@@ -177,80 +201,97 @@ var postInstances = function(req, res, next) {
     e.status = 400;
 
     return next(e);
-  } else if (instance._invoker_name && _.isEmpty(instance.executable)) {
+  } else if (req.params.invoker && _.isEmpty(instance.executable)) {
     var e = new Error('Executable must be specified');
     e.status = 400;
 
     return next(e);
   }
 
-  if (req.param('invoker')) {
-    instance._invoker_name = req.param('invoker');
-
-    delete instance._executable_name;
-  } else if (req.param('executable')) {
-    instance._executable_name = req.param('executable');
-
-    delete instance._invoker_name;
-  }
-
   instance.created = new Date().toString();
 
-  delete instance.id;
-  delete instance._links;
+  preDbWrite(instance);
 
-  db.findOne({ _id: instance._id }, function(err, existingInstance) {
+  var args = {
+    instance: instance,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
+
+  db.instances.get(args, function(err, existingInstance) {
     if (err) return next(err);
 
     if (existingInstance) {
-      var e = new Error('Instance already exists with id = \'' + instance._id + '\'');
+      var e = new Error('Instance already exists with id = \'' + instance.id + '\'');
       e.status = 409;
 
       return next(e);
     }
 
-    db.insert(instance, function(err, insertedInstance) {
+    db.instances.set(args, function(err) {
       if (err) return next(err);
 
-      instance = insertedInstance;
+      postDbRead(instance, req.params.executable, req.params.invoker);
 
-      postDbRead(instance);
-
-      if (instance._executable_name) {
-        res.set('Location', apiBase + '/executables/' + instance._executable_name + '/instances/' + instance._id);
-      } else if (instance._invoker_name) {
-        res.set('Location', apiBase + '/invokers/' + instance._invoker_name + '/instances/' + instance._id);
+      if (req.params.executable) {
+        res.set('Location', apiBase + '/executables/' + req.params.executable + '/instances/' + instance.id);
+      } else if (req.params.invoker) {
+        res.set('Location', apiBase + '/invokers/' + req.params.invoker + '/instances/' + instance.id);
       }
       
       res.status(201).jsonp(instance);
 
-      if (instance.status === 'running') invoke(instance);
+      if (instance.status === 'running') invoke(instance, req.params.executable, req.params.invoker);
     });
   });
 };
 
 // route: */instances/<id>
 var getInstance = function(req, res, next) {
-  var find = { _id: req.param('id') };
+  var args = {
+    id: req.params.id,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
 
-  db.findOne(find, function(err, instance) {
+  if (req.query.embed_all_params) {
+    args.embedParameters = 'all';
+  } else if (req.query.embed_param) {
+    args.embedParameters = req.query.embed_param;
+
+    if (_.isString(args.embedParameters)) args.embedParameters = [ args.embedParameters ];
+  }
+
+  if (req.query.embed_all_results) {
+    args.embedResults = 'all';
+  } else if (req.query.embed_result) {
+    args.embedResults = req.query.embed_result;
+
+    if (_.isString(args.embedResults)) args.embedResults = [ args.embedResults ];
+  }
+
+  db.instances.get(args, function(err, instance) {
     if (err) return next(err);
 
     if (!instance) {
-      var e = new Error('No instance found with id = \'' + req.param('id') + '\'');
+      var e = new Error('No instance found with id = \'' + req.params.id + '\'');
       e.status = 404;
 
       return next(e);
     }
 
-    postDbRead(instance);
+    postDbRead(instance, req.params.executable, req.params.invoker);
 
     res.jsonp(instance);
   });
 };
 
 var putInstance = function(req, res, next) {
-  var find = { _id: req.param('id') };
+  var args = {
+    id: req.params.id,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
 
   if (!_.contains(validStatus, req.body.status)) {
     var e = new Error('Invalid status = \'' + instance.status + '\'');
@@ -259,11 +300,11 @@ var putInstance = function(req, res, next) {
     return next(e);
   }
 
-  db.findOne(find, function(err, instance) {
+  db.instances.get(args, function(err, instance) {
     if (err) return next(err);
 
     if (!instance) {
-      var e = new Error('No instance found with id = \'' + req.param('id') + '\'');
+      var e = new Error('No instance found with id = \'' + req.params.id + '\'');
       e.status = 404;
 
       return next(e);
@@ -281,10 +322,12 @@ var putInstance = function(req, res, next) {
       else instance[key] = val;
     });
 
-    db.update({ _id: instance._id }, instance, {}, function(err, numUpdated) {
+    args.instance = instance;
+
+    db.instances.set(args, function(err) {
       if (err) return next(err);
 
-      postDbRead(instance);
+      postDbRead(instance, req.params.executable, req.params.invoker);
 
       res.jsonp(instance);
 
@@ -294,9 +337,101 @@ var putInstance = function(req, res, next) {
 };
 
 var deleteInstance = function(req, res, next) {
-  var find = { _id: req.param('id') };
+  var args = {
+    id: req.params.id,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
 
-  db.remove(find, {}, function(err, numRemoved) {
+  db.instances.remove(args, function(err) {
+    if (err) return next(err);
+
+    res.status(200).send();
+  });
+};
+
+// route: */instances/<id>/parameters/<name>
+var getParameter = function(req, res, next) {
+  var args = {
+    id: req.params.id,
+    name: req.params.name,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
+
+  db.parameters.get(args, function(err, value) {
+    if (err) return next(err);
+
+    if (!value) {
+      var e = new Error('No value found for parameter \'' + req.params.name + '\'');
+      e.status = 404;
+
+      return next(e);
+    }
+
+    //TODO: set HTTP header Content-Type
+    res.status(200).send(value);
+  });
+};
+
+var putParameter = function(req, res, next) {
+  next();
+  //TODO: implement
+};
+
+var deleteParameter = function(req, res, next) {
+  var args = {
+    id: req.params.id,
+    name: req.params.name,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
+
+  db.parameters.remove(args, function(err) {
+    if (err) return next(err);
+
+    res.status(200).send();
+  });
+};
+
+// route: */instances/<id>/results/<name>
+var getResult = function(req, res, next) {
+  var args = {
+    id: req.params.id,
+    name: req.params.name,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
+
+  db.results.get(args, function(err, value) {
+    if (err) return next(err);
+
+    if (!value) {
+      var e = new Error('No value found for result \'' + req.params.name + '\'');
+      e.status = 404;
+
+      return next(e);
+    }
+
+    //TODO: set HTTP header Content-Type
+    res.status(200).send(value);
+  });
+};
+
+var putResult = function(req, res, next) {
+  next();
+  //TODO: implement
+};
+
+var deleteResult = function(req, res, next) {
+  var args = {
+    id: req.params.id,
+    name: req.params.name,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
+
+  db.results.remove(args, function(err) {
     if (err) return next(err);
 
     res.status(200).send();
@@ -306,17 +441,21 @@ var deleteInstance = function(req, res, next) {
 
 
 // register routes
-app.get(apiBase + '/executables/:executable/instances', getInstances);
-app.post(apiBase + '/executables/:executable/instances', postInstances);
-app.get(apiBase + '/executables/:executable/instances/:id', getInstance);
-app.put(apiBase + '/executables/:executable/instances/:id', putInstance);
-app.delete(apiBase + '/executables/:executable/instances/:id', deleteInstance);
+_.each([ 'executable', 'invoker' ], function(str) {
+  app.get(apiBase + '/' + str + 's/:' + str + '/instances', getInstances);
+  app.post(apiBase + '/' + str + 's/:' + str + '/instances', postInstances);
+  app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id', getInstance);
+  app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id', putInstance);
+  app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id', deleteInstance);
 
-app.get(apiBase + '/invokers/:invoker/instances', getInstances);
-app.post(apiBase + '/invokers/:invoker/instances', postInstances);
-app.get(apiBase + '/invokers/:invoker/instances/:id', getInstance);
-app.put(apiBase + '/invokers/:invoker/instances/:id', putInstance);
-app.delete(apiBase + '/invokers/:invoker/instances/:id', deleteInstance);
+  app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', getParameter);
+  app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', putParameter);
+  app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', deleteParameter);
+
+  app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', getResult);
+  app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', putResult);
+  app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', deleteResult);
+});
 
 
 

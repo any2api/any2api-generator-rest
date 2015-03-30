@@ -70,6 +70,8 @@ var performRequest = function(url, done) {
       var intervalObj = setInterval(function() {
         request(app)
           .get(res.header.location)
+          .query({ embed_all_params: 'true' })
+          .query({ embed_all_results: 'true' })
           .set('Accept', 'application/json')
           .expect('Content-Type', /json/)
           .expect(200)
