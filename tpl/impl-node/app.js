@@ -26,7 +26,9 @@ app.set('json spaces', 2);
 //app.use(favicon(__dirname + '/static/favicon.ico'));
 app.use(logger('dev'));
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
+//app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.text({ limit: '10mb' }));
+app.use(bodyParser.raw({ limit: '10mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'static')));
 
@@ -66,111 +68,7 @@ if (fs.existsSync(executablesPath)) {
   });
 }
 
-// Read API spec
-util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err, as) {
-  if (err) throw err;
 
-  apiSpec = as;
-
-  dbConfig.apiSpec = apiSpec;
-
-  db = InstanceDB(dbConfig);
-
-  index._links.spec = { href: '/api/v1/spec' };
-  index._links.docs = { href: '/api/v1/docs' };
-  index._links.console = { href: '/console' };
-
-  init();
-});
-
-
-
-var postDbRead = function(instance, executableName, invokerName) {
-  var prefix = '';
-
-  if (executableName) prefix = '/executables/' + executableName;
-  else if (invokerName) prefix = '/invokers/' + invokerName;
-
-  instance._links = {
-    self: { href: apiBase + prefix + '/instances/' + instance.id },
-    parent: { href: apiBase + prefix + '/instances' }
-  };
-
-  if (!_.isEmpty(instance.parameters_stored)) {
-    instance._links.parameters = [];
-
-    _.each(instance.parameters_stored, function(name) {
-      instance._links.parameters.push({
-        href: apiBase + prefix + '/instances/' + instance.id + '/parameters/' + name
-      });
-    });
-  }
-
-  if (!_.isEmpty(instance.results_stored)) {
-    instance._links.results = [];
-
-    _.each(instance.results_stored, function(name) {
-      instance._links.results.push({
-        href: apiBase + prefix + '/instances/' + instance.id + '/results/' + name
-      });
-    });
-  }
-
-  return instance;
-};
-
-var preDbWrite = function(instance) {
-  delete instance._id;
-  delete instance._links;
-
-  return instance;
-};
-
-var invoke = function(instance, executableName, invokerName, callback) {
-  callback = callback || function(err) {
-    if (err) console.error(err);
-  };
-
-  util.invokeExecutable({ apiSpec: apiSpec,
-                          instance: instance,
-                          executable_name: executableName,
-                          invoker_name: invokerName }, function(err, instance) {
-    preDbWrite(instance);
-
-    db.instances.set({ instance: instance, executableName: executableName, invokerName: invokerName }, callback);
-  });
-};
-
-
-
-// docs and spec routes
-app.get('/', function(req, res, next) {
-  res.set('Content-Type', 'application/json').jsonp(index);
-});
-
-app.get(apiBase, function(req, res, next) {
-  res.redirect(apiBase + '/docs');
-});
-
-app.get(apiBase + '/docs', function(req, res, next) {
-  fs.readFile(path.resolve(__dirname, 'docs.html'), 'utf8', function(err, content) {
-    if (err) return next(err);
-
-    content = content.replace(/{host}/g, req.get('Host'));
-
-    res.set('Content-Type', 'text/html').send(content);
-  });
-});
-
-app.get(apiBase + '/spec', function(req, res, next) {
-  fs.readFile(path.resolve(__dirname, 'spec.raml'), 'utf8', function(err, content) {
-    if (err) return next(err);
-
-    content = content.replace(/{host}/g, req.get('Host'));
-
-    res.set('Content-Type', 'application/raml+yaml').send(content);
-  });
-});
 
 // route: */instances
 var getInstances = function(req, res, next) {
@@ -387,8 +285,29 @@ var getParameter = function(req, res, next) {
 };
 
 var putParameter = function(req, res, next) {
-  next();
-  //TODO: implement
+  var args = {
+    id: req.params.id,
+    parameterName: req.params.name,
+    executableName: req.params.executable,
+    invokerName: req.params.invoker
+  };
+
+  // request content-type = application/octet-stream --> Buffer
+  // request content-type = text/plain --> string
+  if (req.body) {
+    args.value = req.body;
+
+    db.parameters.set(args, function(err) {
+      if (err) return next(err);
+
+      res.status(200).send();
+    });
+  } else {
+    var e = new Error('Body must not be empty');
+    e.status = 400;
+
+    next(e);
+  }
 };
 
 var deleteParameter = function(req, res, next) {
@@ -435,38 +354,108 @@ var getResult = function(req, res, next) {
   });
 };
 
-var putResult = function(req, res, next) {
-  next();
-  //TODO: implement
-};
 
-var deleteResult = function(req, res, next) {
-  var args = {
-    id: req.params.id,
-    resultName: req.params.name,
-    executableName: req.params.executable,
-    invokerName: req.params.invoker
+
+// Helper functions
+var postDbRead = function(instance, executableName, invokerName) {
+  var prefix = '';
+
+  if (executableName) prefix = '/executables/' + executableName;
+  else if (invokerName) prefix = '/invokers/' + invokerName;
+
+  instance._links = {
+    self: { href: apiBase + prefix + '/instances/' + instance.id },
+    parent: { href: apiBase + prefix + '/instances' }
   };
 
-  db.results.remove(args, function(err) {
-    if (err) return next(err);
+  if (!_.isEmpty(instance.parameters_stored)) {
+    instance._links.parameters = [];
 
-    res.status(200).send();
+    _.each(instance.parameters_stored, function(name) {
+      instance._links.parameters.push({
+        href: apiBase + prefix + '/instances/' + instance.id + '/parameters/' + name
+      });
+    });
+  }
+
+  if (!_.isEmpty(instance.results_stored)) {
+    instance._links.results = [];
+
+    _.each(instance.results_stored, function(name) {
+      instance._links.results.push({
+        href: apiBase + prefix + '/instances/' + instance.id + '/results/' + name
+      });
+    });
+  }
+
+  return instance;
+};
+
+var preDbWrite = function(instance) {
+  delete instance._id;
+  delete instance._links;
+
+  return instance;
+};
+
+var invoke = function(instance, executableName, invokerName, callback) {
+  callback = callback || function(err) {
+    if (err) console.error(err);
+  };
+
+  util.invokeExecutable({ apiSpec: apiSpec,
+                          instance: instance,
+                          executable_name: executableName,
+                          invoker_name: invokerName }, function(err, instance) {
+    preDbWrite(instance);
+
+    db.instances.set({ instance: instance, executableName: executableName, invokerName: invokerName }, callback);
   });
 };
 
-
-
 var setContentType = function(req, res, schema) {
+  var contentType = 'text/plain';
+
   if (schema &&
       schema[req.params.name] &&
-      schema[req.params.name].content_type) {
-    res.set('Content-Type', schema[req.params.name].content_type);
+      _.isString(schema[req.params.name].content_type)) {
+    contentType = schema[req.params.name].content_type;
   }
+
+  res.set('Content-Type', contentType);
 };
 
 var init = function() {
-  // register routes
+  // docs and spec routes
+  app.get('/', function(req, res, next) {
+    res.set('Content-Type', 'application/json').jsonp(index);
+  });
+
+  app.get(apiBase, function(req, res, next) {
+    res.redirect(apiBase + '/docs');
+  });
+
+  app.get(apiBase + '/docs', function(req, res, next) {
+    fs.readFile(path.resolve(__dirname, 'docs.html'), 'utf8', function(err, content) {
+      if (err) return next(err);
+
+      content = content.replace(/{host}/g, req.get('Host'));
+
+      res.set('Content-Type', 'text/html').send(content);
+    });
+  });
+
+  app.get(apiBase + '/spec', function(req, res, next) {
+    fs.readFile(path.resolve(__dirname, 'spec.raml'), 'utf8', function(err, content) {
+      if (err) return next(err);
+
+      content = content.replace(/{host}/g, req.get('Host'));
+
+      res.set('Content-Type', 'application/raml+yaml').send(content);
+    });
+  });
+
+  // executable and invoker routes
   _.each([ 'executable', 'invoker' ], function(str) {
     app.get(apiBase + '/' + str + 's/:' + str + '/instances', getInstances);
     app.post(apiBase + '/' + str + 's/:' + str + '/instances', postInstances);
@@ -479,8 +468,6 @@ var init = function() {
     app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', deleteParameter);
 
     app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', getResult);
-    app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', putResult);
-    app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', deleteResult);
   });
 
   // catch 404 and forward to error handler
@@ -513,6 +500,25 @@ var init = function() {
     });
   });
 };
+
+
+
+// Read API spec and finalize app initialization
+util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err, as) {
+  if (err) throw err;
+
+  apiSpec = as;
+
+  dbConfig.apiSpec = apiSpec;
+
+  db = InstanceDB(dbConfig);
+
+  index._links.spec = { href: '/api/v1/spec' };
+  index._links.docs = { href: '/api/v1/docs' };
+  index._links.console = { href: '/console' };
+
+  init();
+});
 
 
 
