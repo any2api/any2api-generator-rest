@@ -32,6 +32,10 @@ app.use(express.static(path.join(__dirname, 'static')));
 
 var apiBase = '/api/v1';
 
+var apiSpec;
+
+var db;
+
 var dbConfig = {};
 
 if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
@@ -40,8 +44,6 @@ if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
     port: process.env.REDIS_PORT
   };
 }
-
-var db = InstanceDB(dbConfig);
 
 
 
@@ -65,16 +67,20 @@ if (fs.existsSync(executablesPath)) {
 }
 
 // Read API spec
-var apiSpec = { executables: {}, invokers: {} };
-
 util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err, as) {
   if (err) throw err;
 
   apiSpec = as;
 
+  dbConfig.apiSpec = apiSpec;
+
+  db = InstanceDB(dbConfig);
+
   index._links.spec = { href: '/api/v1/spec' };
   index._links.docs = { href: '/api/v1/docs' };
   index._links.console = { href: '/console' };
+
+  init();
 });
 
 
@@ -90,20 +96,20 @@ var postDbRead = function(instance, executableName, invokerName) {
     parent: { href: apiBase + prefix + '/instances' }
   };
 
-  if (!_.isEmpty(instance.parameters_list)) {
+  if (!_.isEmpty(instance.parameters_stored)) {
     instance._links.parameters = [];
 
-    _.each(instance.parameters_list, function(name) {
+    _.each(instance.parameters_stored, function(name) {
       instance._links.parameters.push({
         href: apiBase + prefix + '/instances/' + instance.id + '/parameters/' + name
       });
     });
   }
 
-  if (!_.isEmpty(instance.results_list)) {
+  if (!_.isEmpty(instance.results_stored)) {
     instance._links.results = [];
 
-    _.each(instance.results_list, function(name) {
+    _.each(instance.results_stored, function(name) {
       instance._links.results.push({
         href: apiBase + prefix + '/instances/' + instance.id + '/results/' + name
       });
@@ -251,7 +257,8 @@ var getInstance = function(req, res, next) {
   var args = {
     id: req.params.id,
     executableName: req.params.executable,
-    invokerName: req.params.invoker
+    invokerName: req.params.invoker,
+    preferBase64: true
   };
 
   if (req.query.embed_all_params) {
@@ -354,7 +361,7 @@ var deleteInstance = function(req, res, next) {
 var getParameter = function(req, res, next) {
   var args = {
     id: req.params.id,
-    name: req.params.name,
+    parameterName: req.params.name,
     executableName: req.params.executable,
     invokerName: req.params.invoker
   };
@@ -369,7 +376,12 @@ var getParameter = function(req, res, next) {
       return next(e);
     }
 
-    //TODO: set HTTP header Content-Type
+    var executable = apiSpec.executables[req.params.executable];
+    var invoker = apiSpec.invokers[req.params.invoker];
+
+    if (executable) setContentType(req, res, executable.parameters_schema);
+    else if (invoker) setContentType(req, res, invoker.parameters_schema);
+
     res.status(200).send(value);
   });
 };
@@ -382,7 +394,7 @@ var putParameter = function(req, res, next) {
 var deleteParameter = function(req, res, next) {
   var args = {
     id: req.params.id,
-    name: req.params.name,
+    parameterName: req.params.name,
     executableName: req.params.executable,
     invokerName: req.params.invoker
   };
@@ -398,7 +410,7 @@ var deleteParameter = function(req, res, next) {
 var getResult = function(req, res, next) {
   var args = {
     id: req.params.id,
-    name: req.params.name,
+    resultName: req.params.name,
     executableName: req.params.executable,
     invokerName: req.params.invoker
   };
@@ -413,7 +425,12 @@ var getResult = function(req, res, next) {
       return next(e);
     }
 
-    //TODO: set HTTP header Content-Type
+    var executable = apiSpec.executables[req.params.executable];
+    var invoker = apiSpec.invokers[req.params.invoker];
+
+    if (executable) setContentType(req, res, executable.results_schema);
+    else if (invoker) setContentType(req, res, invoker.results_schema);
+
     res.status(200).send(value);
   });
 };
@@ -426,7 +443,7 @@ var putResult = function(req, res, next) {
 var deleteResult = function(req, res, next) {
   var args = {
     id: req.params.id,
-    name: req.params.name,
+    resultName: req.params.name,
     executableName: req.params.executable,
     invokerName: req.params.invoker
   };
@@ -440,54 +457,62 @@ var deleteResult = function(req, res, next) {
 
 
 
-// register routes
-_.each([ 'executable', 'invoker' ], function(str) {
-  app.get(apiBase + '/' + str + 's/:' + str + '/instances', getInstances);
-  app.post(apiBase + '/' + str + 's/:' + str + '/instances', postInstances);
-  app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id', getInstance);
-  app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id', putInstance);
-  app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id', deleteInstance);
+var setContentType = function(req, res, schema) {
+  if (schema &&
+      schema[req.params.name] &&
+      schema[req.params.name].content_type) {
+    res.set('Content-Type', schema[req.params.name].content_type);
+  }
+};
 
-  app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', getParameter);
-  app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', putParameter);
-  app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', deleteParameter);
+var init = function() {
+  // register routes
+  _.each([ 'executable', 'invoker' ], function(str) {
+    app.get(apiBase + '/' + str + 's/:' + str + '/instances', getInstances);
+    app.post(apiBase + '/' + str + 's/:' + str + '/instances', postInstances);
+    app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id', getInstance);
+    app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id', putInstance);
+    app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id', deleteInstance);
 
-  app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', getResult);
-  app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', putResult);
-  app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', deleteResult);
-});
+    app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', getParameter);
+    app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', putParameter);
+    app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', deleteParameter);
 
+    app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', getResult);
+    app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', putResult);
+    app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', deleteResult);
+  });
 
+  // catch 404 and forward to error handler
+  app.use(function(req, res, next) {
+    var err = new Error('Not Found');
+    err.status = 404;
 
-// catch 404 and forward to error handler
-app.use(function(req, res, next) {
-  var err = new Error('Not Found');
-  err.status = 404;
+    next(err);
+  });
 
-  next(err);
-});
+  // development error handler: print stacktrace
+  if (app.get('env') === 'development') {
+    app.use(function(err, req, res, next) {
+      res.status(err.status || 500);
 
-// development error handler: print stacktrace
-if (app.get('env') === 'development') {
+      res.jsonp({
+          message: err.message,
+          error: err
+      });
+    });
+  }
+
+  // production error handler: no stacktraces leaked to user
   app.use(function(err, req, res, next) {
     res.status(err.status || 500);
 
     res.jsonp({
-        message: err.message,
-        error: err
+      message: err.message,
+      error: {}
     });
   });
-}
-
-// production error handler: no stacktraces leaked to user
-app.use(function(err, req, res, next) {
-  res.status(err.status || 500);
-
-  res.jsonp({
-    message: err.message,
-    error: {}
-  });
-});
+};
 
 
 
