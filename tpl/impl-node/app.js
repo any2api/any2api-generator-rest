@@ -87,7 +87,7 @@ var getInstances = function(req, res, next) {
     instances = _.toArray(instances);
 
     _.each(instances, function(instance) {
-      postDbRead(instance, req.params.executable, req.params.invoker);
+      addLinks(instance, req.params.executable, req.params.invoker);
     });
 
     res.jsonp(instances);
@@ -114,7 +114,7 @@ var postInstances = function(req, res, next) {
 
   instance.created = new Date().toString();
 
-  preDbWrite(instance);
+  removeLinks(instance);
 
   var args = {
     instance: instance,
@@ -135,17 +135,19 @@ var postInstances = function(req, res, next) {
     db.instances.set(args, function(err) {
       if (err) return next(err);
 
-      postDbRead(instance, req.params.executable, req.params.invoker);
+      // trigger invocation
+      if (instance.status === 'running') invoke(instance, req.params.executable, req.params.invoker);
 
+      // send response
       if (req.params.executable) {
         res.set('Location', apiBase + '/executables/' + req.params.executable + '/instances/' + instance.id);
       } else if (req.params.invoker) {
         res.set('Location', apiBase + '/invokers/' + req.params.invoker + '/instances/' + instance.id);
       }
+
+      addLinks(instance, req.params.executable, req.params.invoker);
       
       res.status(201).jsonp(instance);
-
-      if (instance.status === 'running') invoke(instance, req.params.executable, req.params.invoker);
     });
   });
 };
@@ -185,12 +187,13 @@ var getInstance = function(req, res, next) {
       return next(e);
     }
 
-    postDbRead(instance, req.params.executable, req.params.invoker);
+    addLinks(instance, req.params.executable, req.params.invoker);
 
     res.jsonp(instance);
   });
 };
 
+//TODO: PUT instance does not work properly because parameters are missing
 var putInstance = function(req, res, next) {
   var args = {
     id: req.params.id,
@@ -232,11 +235,11 @@ var putInstance = function(req, res, next) {
     db.instances.set(args, function(err) {
       if (err) return next(err);
 
-      postDbRead(instance, req.params.executable, req.params.invoker);
+      addLinks(instance, req.params.executable, req.params.invoker);
 
       res.jsonp(instance);
 
-      if (instance.status === 'running') invoke(instance);
+      if (instance.status === 'running') invoke(instance, req.params.executable, req.params.invoker);
     });
   });
 };
@@ -357,7 +360,7 @@ var getResult = function(req, res, next) {
 
 
 // Helper functions
-var postDbRead = function(instance, executableName, invokerName) {
+var addLinks = function(instance, executableName, invokerName) {
   var prefix = '';
 
   if (executableName) prefix = '/executables/' + executableName;
@@ -391,8 +394,7 @@ var postDbRead = function(instance, executableName, invokerName) {
   return instance;
 };
 
-var preDbWrite = function(instance) {
-  delete instance._id;
+var removeLinks = function(instance) {
   delete instance._links;
 
   return instance;
@@ -407,7 +409,7 @@ var invoke = function(instance, executableName, invokerName, callback) {
                           instance: instance,
                           executable_name: executableName,
                           invoker_name: invokerName }, function(err, instance) {
-    preDbWrite(instance);
+    removeLinks(instance);
 
     db.instances.set({ instance: instance, executableName: executableName, invokerName: invokerName }, callback);
   });
