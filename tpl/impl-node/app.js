@@ -12,6 +12,8 @@ var _ = require('lodash');
 var recursive = require('recursive-readdir');
 var pkg = require('./package.json');
 var debug = require('debug')(pkg.name);
+var mmm = require('mmmagic');
+var magicMime = new mmm.Magic(mmm.MAGIC_MIME);
 
 var util = require('any2api-util');
 var InstanceDB = require('any2api-instancedb-redis');
@@ -161,10 +163,10 @@ var getInstance = function(req, res, next) {
     preferBase64: true
   };
 
-  if (req.query.embed_all_params) {
+  if (req.query.embed_all_parameters || req.query.embed_all_params) {
     args.embedParameters = 'all';
-  } else if (req.query.embed_param) {
-    args.embedParameters = req.query.embed_param;
+  } else if (req.query.embed_parameter || req.query.embed_param) {
+    args.embedParameters = req.query.embed_parameter || req.query.embed_param;
 
     if (_.isString(args.embedParameters)) args.embedParameters = [ args.embedParameters ];
   }
@@ -239,7 +241,7 @@ var putInstance = function(req, res, next) {
 
       res.jsonp(instance);
 
-      if (instance.status === 'running') invoke(instance, req.params.executable, req.params.invoker);
+      if (instance.status === 'running') invoke(req.params.id, req.params.executable, req.params.invoker);
     });
   });
 };
@@ -277,13 +279,19 @@ var getParameter = function(req, res, next) {
       return next(e);
     }
 
-    var executable = apiSpec.executables[req.params.executable];
-    var invoker = apiSpec.invokers[req.params.invoker];
+    var schema;
 
-    if (executable) setContentType(req, res, executable.parameters_schema);
-    else if (invoker) setContentType(req, res, invoker.parameters_schema);
+    if (apiSpec.executables[req.params.executable]) {
+      schema = apiSpec.executables[req.params.executable].parameters_schema;
+    } else if (apiSpec.invokers[req.params.invoker]) {
+      schema = apiSpec.invokers[req.params.invoker].parameters_schema;
+    }
 
-    res.status(200).send(value);
+    determineContentType(req, res, schema, value, function(err) {
+      if (err) return next(err);
+
+      res.status(200).send(value);
+    });
   });
 };
 
@@ -347,13 +355,19 @@ var getResult = function(req, res, next) {
       return next(e);
     }
 
-    var executable = apiSpec.executables[req.params.executable];
-    var invoker = apiSpec.invokers[req.params.invoker];
+    var schema;
 
-    if (executable) setContentType(req, res, executable.results_schema);
-    else if (invoker) setContentType(req, res, invoker.results_schema);
+    if (apiSpec.executables[req.params.executable]) {
+      schema = apiSpec.executables[req.params.executable].results_schema;
+    } else if (apiSpec.invokers[req.params.invoker]) {
+      schema = apiSpec.invokers[req.params.invoker].results_schema;
+    }
 
-    res.status(200).send(value);
+    determineContentType(req, res, schema, value, function(err) {
+      if (err) return next(err);
+
+      res.status(200).send(value);
+    });
   });
 };
 
@@ -405,26 +419,68 @@ var invoke = function(instance, executableName, invokerName, callback) {
     if (err) console.error(err);
   };
 
-  util.invokeExecutable({ apiSpec: apiSpec,
-                          instance: instance,
-                          executable_name: executableName,
-                          invoker_name: invokerName }, function(err, instance) {
-    removeLinks(instance);
+  var invokeArgs = {
+    apiSpec: apiSpec,
+    instance: instance,
+    executable_name: executableName,
+    invoker_name: invokerName
+  };
 
-    db.instances.set({ instance: instance, executableName: executableName, invokerName: invokerName }, callback);
-  });
+  var dbArgs = {
+    executableName: executableName,
+    invokerName: invokerName,
+    embedParameters: 'all'
+  };
+
+  if (_.isString(instance)) {
+    dbArgs.id = instance;
+
+    db.instances.get(dbArgs, function(err, instance) {
+      if (err) return callback(err);
+
+      if (!instance) {
+        return callback(new Error('No instance found with id = \'' + dbArgs.id + '\''));
+      }
+
+      invokeArgs.instance = instance;
+      dbArgs.instance = instance;
+
+      util.invokeExecutable(invokeArgs, function(err, instance) {
+        removeLinks(instance);
+
+        db.instances.set(dbArgs, callback);
+      });
+    });
+  } else {
+    dbArgs.instance = instance;
+
+    util.invokeExecutable(invokeArgs, function(err, instance) {
+      removeLinks(instance);
+
+      db.instances.set(dbArgs, callback);
+    });
+  }
 };
 
-var setContentType = function(req, res, schema) {
-  var contentType = 'text/plain';
-
-  if (schema &&
-      schema[req.params.name] &&
+var determineContentType = function(req, res, schema, content, callback) {
+  if (schema && schema[req.params.name] &&
       _.isString(schema[req.params.name].content_type)) {
-    contentType = schema[req.params.name].content_type;
-  }
+    res.set('Content-Type', schema[req.params.name].content_type);
 
-  res.set('Content-Type', contentType);
+    callback();
+  } else if (Buffer.isBuffer(content)) {
+    magicMime.detect(content, function(err, contentType) {
+      if (err) return callback(err);
+
+      res.set('Content-Type', contentType);
+
+      callback();
+    });
+  } else {
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+
+    callback();
+  }
 };
 
 var init = function() {

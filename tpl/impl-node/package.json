@@ -2,7 +2,7 @@
   "name": "rest-node-api-impl",
   "version": "1.0.0",
   "scripts": {
-    "prepare-runtime": "npm install -s && export IMPL_DIR=`pwd` && for INVOKER_DIR in ./invokers/*; do cd $IMPL_DIR; cd $INVOKER_DIR; npm run prepare-runtime; done",
+    "prepare-runtime": "npm install --loglevel error && export IMPL_DIR=`pwd` && for INVOKER_DIR in ./invokers/*; do cd $IMPL_DIR; cd $INVOKER_DIR; npm run prepare-runtime; done",
     "start": "node ./bin/server",
     "test": "mocha",
     "smoketest": "mocha smoketest"
@@ -26,6 +26,7 @@
     "supertest": "~0.14.0",
     "js-yaml": "~3.2.2",
     "string": "~2.2.0",
+    "mmmagic": "~0.3.13",
     "async": "~0.9.0"
   }
 }
