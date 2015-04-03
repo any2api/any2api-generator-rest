@@ -497,6 +497,7 @@ var init = function() {
     fs.readFile(path.resolve(__dirname, 'docs.html'), 'utf8', function(err, content) {
       if (err) return next(err);
 
+      content = content.replace(/{protocol}/g, req.protocol || 'http');
       content = content.replace(/{host}/g, req.get('Host'));
 
       res.set('Content-Type', 'text/html').send(content);
@@ -507,6 +508,7 @@ var init = function() {
     fs.readFile(path.resolve(__dirname, 'spec.raml'), 'utf8', function(err, content) {
       if (err) return next(err);
 
+      content = content.replace(/{protocol}/g, req.protocol || 'http');
       content = content.replace(/{host}/g, req.get('Host'));
 
       res.set('Content-Type', 'application/raml+yaml').send(content);
