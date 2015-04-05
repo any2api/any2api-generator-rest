@@ -19,6 +19,7 @@ var util = require('any2api-util');
 var InstanceDB = require('any2api-instancedb-redis');
 
 var validStatus = [ 'prepare', 'running', 'finished', 'error' ];
+var requestLimit = '10mb';
 
 
 
@@ -27,10 +28,10 @@ var app = express();
 app.set('json spaces', 2);
 //app.use(favicon(__dirname + '/static/favicon.ico'));
 app.use(logger('dev'));
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: requestLimit }));
 //app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.text({ limit: '10mb' }));
-app.use(bodyParser.raw({ limit: '10mb' }));
+app.use(bodyParser.text({ limit: requestLimit }));
+app.use(bodyParser.raw({ limit: requestLimit }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'static')));
 
@@ -56,7 +57,10 @@ var staticPath = path.join(__dirname, 'static');
 var executablesPath = path.resolve(staticPath, 'executables');
 
 var index = {
-  _links: { self: { href: '/' } }
+  _links: {
+    self: { href: '/' },
+    files: []
+  }
 };
 
 if (fs.existsSync(executablesPath)) {
@@ -64,8 +68,7 @@ if (fs.existsSync(executablesPath)) {
     if (err) console.error(err);
 
     _.each(files, function(file) {
-      index._links[path.relative(staticPath, file)] =
-        { href: '/' + path.relative(staticPath, file).replace(/\\/g,'/') };
+      index._links.files.push({ href: '/' + path.relative(staticPath, file).replace(/\\/g,'/') });
     });
   });
 }
@@ -575,7 +578,7 @@ util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err,
 
   index._links.spec = { href: '/api/v1/spec' };
   index._links.docs = { href: '/api/v1/docs' };
-  index._links.console = { href: '/console' };
+  index._links.console = { href: '/console/v1' };
 
   init();
 });
