@@ -198,7 +198,6 @@ var getInstance = function(req, res, next) {
   });
 };
 
-//TODO: PUT instance does not work properly because parameters are missing
 var putInstance = function(req, res, next) {
   var args = {
     id: req.params.id,

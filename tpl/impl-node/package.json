@@ -17,7 +17,7 @@
     "uuid": "~2.0.0",
     "lodash": "~2.4.0",
     "recursive-readdir": "~1.2.0",
-    "any2api-instancedb-redis": "~0.1.0",
+    "any2api-instancedb-redis": "*",
     "any2api-util": "*" 
   },
   "devDependencies": {
