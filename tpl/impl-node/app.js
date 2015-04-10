@@ -58,17 +58,18 @@ var executablesPath = path.resolve(staticPath, 'executables');
 
 var index = {
   _links: {
-    self: { href: '/' },
-    files: []
+    self: { href: '/' }
   }
 };
+
+var indexFiles = [];
 
 if (fs.existsSync(executablesPath)) {
   recursive(executablesPath, function(err, files) {
     if (err) console.error(err);
 
     _.each(files, function(file) {
-      index._links.files.push({ href: '/' + path.relative(staticPath, file).replace(/\\/g,'/') });
+      indexFiles.push({ href: '/' + path.relative(staticPath, file).replace(/\\/g,'/') });
     });
   });
 }
@@ -264,6 +265,8 @@ var deleteInstance = function(req, res, next) {
 
 // route: */instances/<id>/parameters/<name>
 var getParameter = function(req, res, next) {
+  req.params.name = req.params[0];
+
   var args = {
     id: req.params.id,
     parameterName: req.params.name,
@@ -298,6 +301,8 @@ var getParameter = function(req, res, next) {
 };
 
 var putParameter = function(req, res, next) {
+  req.params.name = req.params[0];
+
   var args = {
     id: req.params.id,
     parameterName: req.params.name,
@@ -324,6 +329,8 @@ var putParameter = function(req, res, next) {
 };
 
 var deleteParameter = function(req, res, next) {
+  req.params.name = req.params[0];
+
   var args = {
     id: req.params.id,
     parameterName: req.params.name,
@@ -340,6 +347,8 @@ var deleteParameter = function(req, res, next) {
 
 // route: */instances/<id>/results/<name>
 var getResult = function(req, res, next) {
+  req.params.name = req.params[0];
+
   var args = {
     id: req.params.id,
     resultName: req.params.name,
@@ -525,11 +534,11 @@ var init = function() {
     app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id', putInstance);
     app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id', deleteInstance);
 
-    app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', getParameter);
-    app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', putParameter);
-    app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/:name', deleteParameter);
+    app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/*', getParameter);
+    app.put(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/*', putParameter);
+    app.delete(apiBase + '/' + str + 's/:' + str + '/instances/:id/parameters/*', deleteParameter);
 
-    app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/:name', getResult);
+    app.get(apiBase + '/' + str + 's/:' + str + '/instances/:id/results/*', getResult);
   });
 
   // catch 404 and forward to error handler
@@ -578,6 +587,7 @@ util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err,
   index._links.spec = { href: '/api/v1/spec' };
   index._links.docs = { href: '/api/v1/docs' };
   index._links.console = { href: '/console/v1' };
+  index._links.files = indexFiles;
 
   init();
 });
