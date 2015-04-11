@@ -6,6 +6,7 @@ var bodyParser = require('body-parser');
 
 var exec = require('child_process').exec;
 var path = require('path');
+var async = require('async');
 var fs = require('fs');
 var uuid = require('uuid');
 var _ = require('lodash');
@@ -183,15 +184,55 @@ var getInstance = function(req, res, next) {
     if (_.isString(args.embedResults)) args.embedResults = [ args.embedResults ];
   }
 
-  db.instances.get(args, function(err, instance) {
-    if (err) return next(err);
+  var instance = null;
 
-    if (!instance) {
-      var e = new Error('No instance found with id = \'' + req.params.id + '\'');
-      e.status = 404;
+  async.series([
+    function(callback) {
+      db.instances.get(args, function(err, inst) {
+        if (err) return callback(err);
 
-      return next(e);
+        if (!inst) {
+          var e = new Error('No instance found with id = \'' + req.params.id + '\'');
+          e.status = 404;
+
+          return callback(e);
+        }
+
+        instance = inst;
+
+        callback();
+      });
+    },
+    function(callback) {
+      async.each([
+        instance.parameters,
+        instance.results
+      ], function(collection, callback) {
+        async.each(_.keys(collection), function(name, callback) {
+          var value = collection[name];
+
+          if (!Buffer.isBuffer(value)) return callback();
+
+          magicMime.detect(value, function(err, contentType) {
+            if (err) return callback(err);
+
+            if (contentType.indexOf('text') > -1 ||
+                contentType.indexOf('json') > -1 ||
+                contentType.indexOf('xml') > -1 ||
+                contentType.indexOf('yaml') > -1 ||
+                contentType.indexOf('yml') > -1) {
+              collection[name] = value.toString('utf8');
+            } else {
+              collection[name] = value.toString('base64');
+            }
+
+            callback();
+          });
+        }, callback);
+      }, callback);
     }
+  ], function(err) {
+    if (err) return next(err);
 
     addLinks(instance, req.params.executable, req.params.invoker);
 
