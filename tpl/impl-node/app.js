@@ -112,12 +112,12 @@ var postInstances = function(req, res, next) {
     e.status = 400;
 
     return next(e);
-  } else if (req.params.invoker && _.isEmpty(instance.executable)) {
+  } /*else if (req.params.invoker && _.isEmpty(instance.executable)) {
     var e = new Error('Executable must be specified');
     e.status = 400;
 
     return next(e);
-  }
+  }*/
 
   instance.created = new Date().toString();
 
@@ -471,7 +471,12 @@ var invoke = function(instance, executableName, invokerName, callback) {
     if (err) console.error(err);
   };
 
-  var invokeArgs = {
+  var item = apiSpec.executables[executableName] || apiSpec.invokers[invokerName];
+
+  var paramsStream = null;
+  var resultsStream = util.throughStream({ objectMode: true });
+
+  var runArgs = {
     apiSpec: apiSpec,
     instance: instance,
     executable_name: executableName,
@@ -484,33 +489,73 @@ var invoke = function(instance, executableName, invokerName, callback) {
     embedParameters: 'all'
   };
 
+  var runInstance = function(callback) {
+    async.series([
+      function(callback) {
+        // Build parameters stream
+        util.streamifyParameters({
+          parameters: instance.parameters,
+          parametersSchema: item.parameters_schema,
+          parametersRequired: item.parameters_required
+        }, function(err, stream) {
+          paramsStream = stream;
+
+          callback(err);
+        });
+      },
+      function(callback) {
+        // Run instance
+        util.runInstance({
+          apiSpec: apiSpec,
+          instance: instance,
+          executable_name: executableName,
+          invoker_name: invokerName,
+          parametersStream: paramsStream,
+          resultsStream: resultsStream
+        }, function(err, inst) {
+          instance = inst;
+
+          callback(err);
+        });
+      }
+    ], function(err) {
+      removeLinks(instance);
+
+      // Consume results stream
+      util.unstreamifyResults({
+        resultsSchema: item.results_schema,
+        resultsStream: resultsStream
+      }, function(err2, results) {
+        if (err2) console.error(err2);
+
+        instance.results = results;
+
+        db.instances.set(dbArgs, function(err3) {
+          if (err3) console.error(err3);
+
+          callback(err);
+        });
+      });
+    });
+  };
+
   if (_.isString(instance)) {
     dbArgs.id = instance;
 
-    db.instances.get(dbArgs, function(err, instance) {
+    db.instances.get(dbArgs, function(err, inst) {
       if (err) return callback(err);
 
-      if (!instance) {
-        return callback(new Error('No instance found with id = \'' + dbArgs.id + '\''));
-      }
+      if (!inst) return callback(new Error('No instance found with id = \'' + dbArgs.id + '\''));
 
-      invokeArgs.instance = instance;
+      instance = inst;
       dbArgs.instance = instance;
 
-      util.invokeExecutable(invokeArgs, function(err, instance) {
-        removeLinks(instance);
-
-        db.instances.set(dbArgs, callback);
-      });
+      runInstance(callback);
     });
   } else {
     dbArgs.instance = instance;
 
-    util.invokeExecutable(invokeArgs, function(err, instance) {
-      removeLinks(instance);
-
-      db.instances.set(dbArgs, callback);
-    });
+    runInstance(callback);
   }
 };
 
@@ -616,7 +661,7 @@ var init = function() {
 
 
 // Read API spec and finalize app initialization
-util.readInput({ specPath: path.join(__dirname, 'apispec.json') }, function(err, as) {
+util.readSpec({ specPath: path.join(__dirname, 'apispec.json') }, function(err, as) {
   if (err) throw err;
 
   apiSpec = as;
