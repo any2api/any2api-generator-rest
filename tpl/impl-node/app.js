@@ -479,8 +479,8 @@ var invoke = function(instance, executableName, invokerName, callback) {
   var runArgs = {
     apiSpec: apiSpec,
     instance: instance,
-    executable_name: executableName,
-    invoker_name: invokerName
+    executableName: executableName,
+    invokerName: invokerName
   };
 
   var dbArgs = {
@@ -508,8 +508,8 @@ var invoke = function(instance, executableName, invokerName, callback) {
         util.runInstance({
           apiSpec: apiSpec,
           instance: instance,
-          executable_name: executableName,
-          invoker_name: invokerName,
+          executableName: executableName,
+          invokerName: invokerName,
           parametersStream: paramsStream,
           resultsStream: resultsStream
         }, function(err, inst) {
