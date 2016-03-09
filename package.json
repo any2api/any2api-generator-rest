@@ -31,8 +31,5 @@
   },
   "scripts": {
     "update-api-console": "sh ./tpl/console/update.sh"
-  },
-  "engines": {
-    "node": ">= 0.10"
   }
 }
