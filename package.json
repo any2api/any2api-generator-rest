@@ -1,6 +1,6 @@
 {
   "name": "any2api-generator-rest",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": "Johannes Wettinger <mail@jojow.de>",
   "description": "REST API implementation generator for any2api",
   "repository": {
